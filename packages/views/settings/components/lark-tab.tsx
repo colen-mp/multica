@@ -45,14 +45,9 @@ import { docsLocalePrefix } from "../../common/docs-locale";
 import { useLocale, useT } from "../../i18n";
 import { TooltipHint } from "@multica/ui/components/common/tooltip-hint";
 
-// MUL-3083: the Lark (international, open.larksuite.com) "connect a Bot"
-// entry is temporarily hidden while its install → inbound pipeline is
-// stabilized — some Lark installs complete on Lark's side but never land a
-// `lark_installation` row, so the Bot silently can't receive messages.
-// Mainland Feishu is unaffected and keeps its bind entry. Existing
-// installations (either cloud) stay fully manageable. Flip this back to
-// `true` to restore the "Bind to Lark" CTA; nothing else needs to change.
-const LARK_INTL_CONNECT_ENABLED: boolean = false;
+// Keep the international Lark bind entry available. The installation flow
+// routes through the Lark accounts and Open Platform hosts when region="lark".
+const LARK_INTL_CONNECT_ENABLED: boolean = true;
 
 // LarkTab is the workspace settings panel for Lark Bot installations.
 // Listing is member-visible; the disconnect action is admin-only (the
@@ -413,9 +408,7 @@ export function LarkAgentBindButton({
             {t(($) => $.lark.bind_button_feishu)}
           </Button>
         </TooltipHint>
-        {/* MUL-3083: Lark (international) bind entry is temporarily hidden —
-            see LARK_INTL_CONNECT_ENABLED. Mainland Feishu (above) is
-            unaffected. */}
+        {/* International Lark is enabled alongside mainland Feishu. */}
         {LARK_INTL_CONNECT_ENABLED && (
           <TooltipHint
             label={
