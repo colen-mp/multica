@@ -2007,13 +2007,7 @@ func TestIsDurablePublicURL(t *testing.T) {
 	}
 }
 
-// TestServeLocalUpload_RelaxesFrameAncestorsForPreview covers the self-hosted
-// local-disk case where document previews (PDF/HTML) are fetched straight from
-// the public /uploads/* static route. That route inherits the global
-// "frame-ancestors 'none'" CSP from the middleware, which blocks iframe
-// previews; ServeLocalUpload must overwrite it with the same relaxed preview
-// policy the /api/attachments download endpoint uses. See MUL-3821 / #4477.
-func TestServeLocalUpload_RelaxesFrameAncestorsForPreview(t *testing.T) {
+func TestServeLocalUpload_RejectsUntrackedObject(t *testing.T) {
 	dir := t.TempDir()
 	key := "workspaces/ws-1/preview.pdf"
 	full := filepath.Join(dir, filepath.FromSlash(key))
@@ -2045,13 +2039,12 @@ func TestServeLocalUpload_RelaxesFrameAncestorsForPreview(t *testing.T) {
 
 	h.ServeLocalUpload(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%q", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
 	}
-	if got := w.Body.String(); got != body {
-		t.Fatalf("body = %q, want %q", got, body)
+	if strings.Contains(w.Body.String(), body) {
+		t.Fatal("private object leaked")
 	}
-	requireAttachmentPreviewCSP(t, w.Header(), "https://app.example.test")
 }
 
 // TestServeLocalUpload_NonLocalStorage404 guards the defensive branch: the

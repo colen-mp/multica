@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
-import { attachmentIdFromDownloadURL } from "@multica/core/types/attachment-url";
+import { localUploadDownloadURL, attachmentIdFromDownloadURL } from "@multica/core/types/attachment-url";
 
 // Keep refetches well inside the server's signed-URL TTL (30 min default,
 // server/internal/handler/file.go) so a re-render never serves an expired
@@ -83,6 +83,7 @@ export function useResignedInlineMedia(
   pickedUrl: string,
   blobFallback: boolean,
 ): { url: string; pending: boolean } {
+  pickedUrl = localUploadDownloadURL(pickedUrl);
   const idFromPickedUrl = attachmentIdFromDownloadURL(pickedUrl);
   const resignAttachmentId = attachmentId ?? idFromPickedUrl;
   const isCrossOriginWebURL = (() => {

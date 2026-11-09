@@ -249,6 +249,9 @@ func (h *Handler) buildMarkdownURL(a db.Attachment, id string) string {
 // fetch — the only case where it is safe to persist `a.Url` into a markdown
 // body that will outlive the current session.
 func (h *Handler) storageURLIsPubliclyReadable(rawURL string) bool {
+	if _, local := h.Storage.(*storage.LocalStorage); local {
+		return false
+	}
 	if h.Storage == nil || h.CFSigner != nil {
 		// CFSigner != nil is per-request signing; the CDN domain serves
 		// private content via signed URLs and `a.Url` is the raw S3 URL.
@@ -967,22 +970,10 @@ func shouldProxyAttachmentURL(rawURL string) bool {
 	return false
 }
 
-// ServeLocalUpload serves a local-disk object from the public /uploads/*
-// route. It carries the same preview security headers as the authenticated
-// download endpoint so self-hosted deployments — same-origin or split
-// frontend/backend origins — can inline-render images and iframe-preview
-// documents (PDF/HTML) fetched straight from the static route. Without these
-// headers the global "frame-ancestors 'none'" policy blocks those previews.
-// See MUL-3821 / #4477.
+// ServeLocalUpload disables raw storage access. Attachments use the existing
+// authorized download APIs and avatars use their dedicated signed endpoint.
 func (h *Handler) ServeLocalUpload(w http.ResponseWriter, r *http.Request) {
-	local, ok := h.Storage.(*storage.LocalStorage)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	h.setAttachmentPreviewSecurityHeaders(w)
-	key := strings.TrimPrefix(r.URL.Path, "/uploads/")
-	local.ServeFile(w, r, key)
+	http.NotFound(w, r)
 }
 
 // proxyAttachmentDownload streams an attachment through the API instead of

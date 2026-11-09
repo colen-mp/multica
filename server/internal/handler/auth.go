@@ -432,8 +432,14 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.MarkVerificationCodeUsed(r.Context(), dbCode.ID); err != nil {
+	consumed, err := h.Queries.MarkVerificationCodeUsed(r.Context(), dbCode.ID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to verify code")
+		return
+	}
+
+	if consumed != 1 {
+		writeError(w, http.StatusBadRequest, "invalid or expired code")
 		return
 	}
 

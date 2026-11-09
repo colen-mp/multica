@@ -187,24 +187,21 @@ function resetFixtures() {
 describe("LarkAgentBindButton (CTA gate)", () => {
   beforeEach(resetFixtures);
 
-  it("shows the Feishu bind CTA but hides the Lark CTA for an owner (MUL-3083)", () => {
-    // Mainland Feishu binding stays available; the Lark (international)
-    // entry is temporarily hidden via LARK_INTL_CONNECT_ENABLED while its
-    // install→inbound pipeline is stabilized (MUL-3083).
+  it("shows both regional bind CTAs for an owner", () => {
     render(<LarkAgentBindButton agentId="agent-1" agentName="Bot" />, {
       wrapper: I18nWrapper,
     });
     expect(screen.getByRole("button", { name: /Bind to Feishu/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Bind to Lark/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Bind to Lark/i })).toBeTruthy();
   });
 
-  it("shows the Feishu bind CTA but hides the Lark CTA for an admin (MUL-3083)", () => {
+  it("shows both regional bind CTAs for an admin", () => {
     membersRef.current = [{ user_id: "user-1", role: "admin" }];
     render(<LarkAgentBindButton agentId="agent-1" agentName="Bot" />, {
       wrapper: I18nWrapper,
     });
     expect(screen.getByRole("button", { name: /Bind to Feishu/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Bind to Lark/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Bind to Lark/i })).toBeTruthy();
   });
 
   it("hides both bind CTAs for a plain member when no agentOwnerId is supplied (stays admin-only)", () => {
@@ -284,12 +281,23 @@ describe("LarkAgentBindButton (CTA gate)", () => {
     );
   });
 
-  // NOTE (MUL-3083): the "clicking Bind to Lark begins an install with
-  // region='lark'" test was removed alongside the temporarily-hidden Lark
-  // (international) CTA — there is no Lark button to click while
-  // LARK_INTL_CONNECT_ENABLED is false. The Feishu region routing is still
-  // pinned by the "clicking Bind to Feishu …" test above; restore the Lark
-  // case when the entry is re-enabled.
+  it("routes international binding to the Lark region", async () => {
+    const user = userEvent.setup();
+    mockBeginInstall.mockResolvedValue({
+      session_id: "sess-lark",
+      qr_code_url: "https://accounts.larksuite.com/oauth/v1/device?u=lark",
+      expires_in_seconds: 300,
+      poll_interval_seconds: 2,
+    });
+    mockGetStatus.mockResolvedValue({ status: "pending" });
+    render(<LarkAgentBindButton agentId="agent-1" agentName="Bot" />, {
+      wrapper: I18nWrapper,
+    });
+    await user.click(screen.getByRole("button", { name: /Bind to Lark/i }));
+    await waitFor(() => expect(mockBeginInstall).toHaveBeenCalledWith(
+      "workspace-1", "agent-1", "lark",
+    ));
+  });
 
   it("swaps the bind CTAs for a 'Connected + Manage in Lark' badge when this agent already has an active installation", () => {
     // Anti-zombie guard: re-scanning the same agent upserts the row
@@ -363,7 +371,7 @@ describe("LarkAgentBindButton (CTA gate)", () => {
     expect(link.href).toBe("https://open.larksuite.com/app/cli_lark_app");
   });
 
-  it("shows the Feishu CTA (Lark hidden) for an agent without its own installation, per-agent scoping (MUL-3083)", () => {
+  it("shows both CTAs for an agent without its own installation", () => {
     installationsRef.current.installations = [
       {
         id: "inst-other",
@@ -382,7 +390,7 @@ describe("LarkAgentBindButton (CTA gate)", () => {
       wrapper: I18nWrapper,
     });
     expect(screen.getByRole("button", { name: /Bind to Feishu/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Bind to Lark/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Bind to Lark/i })).toBeTruthy();
   });
 
   it("keeps the Connected + Manage badge for an already-installed agent even when new installs are unavailable (install_supported=false)", () => {
@@ -424,7 +432,7 @@ describe("LarkAgentBindButton (CTA gate)", () => {
     ).toBeTruthy();
   });
 
-  it("shows the Feishu CTA (Lark hidden) when this agent's only installation is revoked (MUL-3083)", () => {
+  it("shows both CTAs when this agent's only installation is revoked", () => {
     installationsRef.current.installations = [
       {
         id: "inst-revoked",
@@ -443,7 +451,7 @@ describe("LarkAgentBindButton (CTA gate)", () => {
       wrapper: I18nWrapper,
     });
     expect(screen.getByRole("button", { name: /Bind to Feishu/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Bind to Lark/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Bind to Lark/i })).toBeTruthy();
   });
 });
 

@@ -41,7 +41,7 @@ import { copyText } from "@multica/ui/lib/clipboard";
 import { api } from "@multica/core/api";
 import { useConfigStore } from "@multica/core/config";
 import type { Attachment as AttachmentRecord } from "@multica/core/types";
-import { attachmentIdFromStorageURL } from "@multica/core/types/attachment-url";
+import { localUploadDownloadURL, attachmentDownloadPath, attachmentIdFromStorageURL } from "@multica/core/types/attachment-url";
 import { useT } from "../i18n";
 import { DeferredTooltip } from "../common/deferred-tooltip";
 import { useAttachmentDownloadResolver } from "./attachment-download-context";
@@ -210,6 +210,7 @@ function normalize(
 // http(s)://, blob:, and data: URLs are passed through unchanged — they
 // already carry their own origin.
 function absolutizeMediaURL(rawUrl: string): string {
+  rawUrl = localUploadDownloadURL(rawUrl);
   if (!rawUrl) return rawUrl;
   if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
   if (/^blob:/i.test(rawUrl) || /^data:/i.test(rawUrl)) return rawUrl;
@@ -245,16 +246,10 @@ function pickInlineMediaURL(
     return dl;
   }
   if (!cdnSigned && storageURLMatchesCdnDomain(record.url, cdnDomain)) return record.url;
-  if (isSiteRelativeLocalUploadURL(record.url)) return record.url;
+  if (localUploadDownloadURL(record.url) !== record.url) return attachmentDownloadPath(record.id);
   if (record.markdown_url) return record.markdown_url;
   if (record.url) return record.url;
   return fallback;
-}
-
-function isSiteRelativeLocalUploadURL(rawURL: string): boolean {
-  if (!rawURL || !rawURL.startsWith("/")) return false;
-  const path = rawURL.split(/[?#]/, 1)[0] ?? "";
-  return path === "/uploads" || path.startsWith("/uploads/");
 }
 
 function storageURLMatchesCdnDomain(rawURL: string, cdnDomain: string): boolean {

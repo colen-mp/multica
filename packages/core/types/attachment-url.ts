@@ -164,3 +164,14 @@ export function contentReferencesAttachment(
   if (contentReferencesURL(content, attachment.markdown_url)) return true;
   return false;
 }
+
+/** Resolve old local upload references through authenticated attachment APIs. */
+export function localUploadDownloadURL(rawURL: string): string {
+  let path = rawURL;
+  if (/^https?:\/\//i.test(path)) {
+    try { path = new URL(path).pathname; } catch { return rawURL; }
+  }
+  path = path.split(/[?#]/, 1)[0] ?? "";
+  const match = new RegExp(`^/uploads/workspaces/${UUID_PATTERN}/(${UUID_PATTERN})(?:\\.[A-Za-z0-9]+)?$`, "i").exec(path);
+  return match?.[1] ? attachmentDownloadPath(match[1]) : rawURL;
+}

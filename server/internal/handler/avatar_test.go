@@ -79,9 +79,8 @@ func TestResolveAvatarURL_CloudFrontSignedRewrites(t *testing.T) {
 	}
 }
 
-// TestResolveAvatarURL_LocalStorageUnchanged — LocalStorage objects are served
-// by the public /uploads/* route, so they are already loadable as-is.
-func TestResolveAvatarURL_LocalStorageUnchanged(t *testing.T) {
+// Local avatars use their separate capability after raw uploads are protected.
+func TestResolveAvatarURL_LocalStorageUsesCapability(t *testing.T) {
 	local := storage.NewLocalStorageFromEnv()
 	if local == nil {
 		t.Skip("local storage unavailable")
@@ -89,8 +88,8 @@ func TestResolveAvatarURL_LocalStorageUnchanged(t *testing.T) {
 	withAvatarStorage(t, local, "")
 
 	raw := local.ObjectURL(testAvatarKey)
-	if got := testHandler.resolveAvatarURL(raw); got != raw {
-		t.Fatalf("resolveAvatarURL = %q, want unchanged %q", got, raw)
+	if got := testHandler.resolveAvatarURL(raw); got != avatarURLPath(testAvatarKey) {
+		t.Fatalf("resolveAvatarURL = %q, want capability", got)
 	}
 }
 

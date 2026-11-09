@@ -313,11 +313,11 @@ describe("Attachment — image dispatch", () => {
     );
   });
 
-  it("prefers a local disk /uploads URL over API markdown in split-origin self-host", () => {
+  it("uses authorized API markdown for a local disk upload in split-origin self-host", async () => {
     getBaseUrlMock.mockReturnValue("https://api.example.test");
     const id = "11111111-2222-3333-4444-555555555555";
     const markdownUrl = `https://api.example.test/api/attachments/${id}/download`;
-    const mediaUrl = "https://api.example.test/uploads/workspaces/ws-1/shot.png";
+    const mediaUrl = `https://api.example.test/api/attachments/${id}/download`;
     const att = makeRecord({
       id,
       url: "/uploads/workspaces/ws-1/shot.png",
@@ -325,6 +325,8 @@ describe("Attachment — image dispatch", () => {
       download_url: `/api/attachments/${id}/download`,
     });
     resolverState.attachments = [att];
+    getAttachmentMock.mockResolvedValue(att);
+    getAttachmentBlobMock.mockResolvedValue(new Blob(["image"], { type: "image/png" }));
 
     renderWithQuery(
       <Attachment
@@ -341,10 +343,9 @@ describe("Attachment — image dispatch", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
-    const imageSrcs = [...document.querySelectorAll("img")].map((img) =>
-      img.getAttribute("src"),
-    );
-    expect(imageSrcs).toEqual([mediaUrl, mediaUrl]);
+    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(2));
+    expect(getAttachmentMock).toHaveBeenCalledWith(id);
+    expect(getAttachmentBlobMock).toHaveBeenCalledWith(id);
   });
 
   it("opens preview with the same resolved media URL when a reopened draft record has no download_url", () => {
