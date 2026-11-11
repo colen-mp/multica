@@ -815,7 +815,10 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 // belong to a different workspace. The membership cache fast path mirrors
 // canReadWorkspaceUpload exactly.
 func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Request) (db.Attachment, bool) {
-	attachmentID := chi.URLParam(r, "id")
+	return h.loadAttachmentForDownloadID(w, r, chi.URLParam(r, "id"))
+}
+
+func (h *Handler) loadAttachmentForDownloadID(w http.ResponseWriter, r *http.Request, attachmentID string) (db.Attachment, bool) {
 	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, "attachment id")
 	if !ok {
 		return db.Attachment{}, false
@@ -836,6 +839,10 @@ func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Reque
 
 	workspaceID := uuidToString(att.WorkspaceID)
 	if workspaceID == "" {
+		writeError(w, http.StatusNotFound, "attachment not found")
+		return db.Attachment{}, false
+	}
+	if r.Header.Get("X-Actor-Source") == "task_token" && r.Header.Get("X-Workspace-ID") != workspaceID {
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return db.Attachment{}, false
 	}
@@ -970,10 +977,39 @@ func shouldProxyAttachmentURL(rawURL string) bool {
 	return false
 }
 
-// ServeLocalUpload disables raw storage access. Attachments use the existing
-// authorized download APIs and avatars use their dedicated signed endpoint.
+// ServeLocalUpload preserves historical attachment URLs without exposing the
+// storage directory. The router authenticates before this handler runs.
 func (h *Handler) ServeLocalUpload(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
+	if _, ok := h.Storage.(*storage.LocalStorage); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	key := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[0] != "workspaces" {
+		http.NotFound(w, r)
+		return
+	}
+	workspaceID, err := uuid.Parse(parts[1])
+	if err != nil || workspaceID.String() != parts[1] {
+		http.NotFound(w, r)
+		return
+	}
+	attachmentID := strings.TrimSuffix(parts[2], path.Ext(parts[2]))
+	id, err := uuid.Parse(attachmentID)
+	if err != nil || id.String() != attachmentID {
+		http.NotFound(w, r)
+		return
+	}
+	att, ok := h.loadAttachmentForDownloadID(w, r, attachmentID)
+	if !ok {
+		return
+	}
+	if uuidToString(att.WorkspaceID) != parts[1] || h.Storage.KeyFromURL(att.Url) != key {
+		http.NotFound(w, r)
+		return
+	}
+	h.proxyAttachmentDownload(w, r, att, key, false)
 }
 
 // proxyAttachmentDownload streams an attachment through the API instead of

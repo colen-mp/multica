@@ -10,6 +10,24 @@ import (
 	"testing"
 )
 
+func TestLocalStorage_GetReaderRejectsEscapingSymlink(t *testing.T) {
+	uploads := t.TempDir()
+	t.Setenv("LOCAL_UPLOAD_DIR", uploads)
+	t.Setenv("LOCAL_UPLOAD_BASE_URL", "")
+	outside := filepath.Join(t.TempDir(), "private.txt")
+	if err := os.WriteFile(outside, []byte("outside canary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(uploads, "image.png")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	reader, err := NewLocalStorageFromEnv().GetReader(context.Background(), "image.png")
+	if err == nil {
+		reader.Close()
+		t.Fatal("escaping symlink opened")
+	}
+}
+
 func TestLocalStorage_Upload(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("LOCAL_UPLOAD_DIR", tmpDir)

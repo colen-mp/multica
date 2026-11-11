@@ -103,7 +103,13 @@ func (s *LocalStorage) GetReader(ctx context.Context, key string) (io.ReadCloser
 	if !isUnder(s.uploadDir, filePath) {
 		return nil, fmt.Errorf("local GetReader: key escapes upload dir: %q", key)
 	}
-	f, err := os.Open(filePath)
+	// Confine reads even when a stored object was replaced with a symlink.
+	root, err := os.OpenRoot(s.uploadDir)
+	if err != nil {
+		return nil, fmt.Errorf("local GetReader: %w", err)
+	}
+	defer root.Close()
+	f, err := root.Open(key)
 	if err != nil {
 		return nil, fmt.Errorf("local GetReader: %w", err)
 	}

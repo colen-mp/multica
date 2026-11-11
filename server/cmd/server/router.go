@@ -1528,15 +1528,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		realtime.HandleWebSocket(hub, mc, pr, slugResolver, w, r)
 	})
 
-	// Local file serving (when using local storage). Served through the
-	// handler so /uploads/* carries the same preview security headers as the
-	// /api/attachments download endpoint; self-hosted split-origin/same-origin
-	// clients can then iframe-preview PDFs/HTML fetched straight from the
-	// static route instead of hitting the global frame-ancestors 'none' CSP.
-	// See MUL-3821 / #4477.
-	if _, ok := store.(*storage.LocalStorage); ok {
-		r.Get("/uploads/*", h.ServeLocalUpload)
-	}
+	// Only tracked workspace attachments have an authenticated legacy route.
+	// Directories and other storage namespaces are never served as static files.
+	r.Get("/uploads", http.NotFound)
+	r.Get("/uploads/*", http.NotFound)
 
 	// Capability-authenticated attachment download (MUL-5292). Public by
 	// necessity: a native download (Electron's webContents.downloadURL, a
@@ -1707,6 +1702,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+		if _, ok := store.(*storage.LocalStorage); ok {
+			r.Get("/uploads/workspaces/{workspaceID}/{filename:[0-9a-f-]+(?:\\.[A-Za-z0-9]+)?}", h.ServeLocalUpload)
+		}
 
 		// Plugin Action API. Called by the HOST PAGE on the signed-in user's
 		// session after a surface asks for something over the postMessage
