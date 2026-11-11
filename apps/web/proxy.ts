@@ -168,6 +168,7 @@ export const config = {
     "/api",
     "/api/((?!upload-file(?:/|$)).*)",
     "/auth/:path*",
+    "/uploads/:path*",
     "/docs/:path*",
     "/ws",
     "/((?!api|v1|_next/static|_next/image|favicon.ico|.*\\.).*)",

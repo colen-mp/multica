@@ -139,6 +139,22 @@ describe("proxy runtime upstream rewrites", () => {
     expect(config.matcher).toContain("/v1/:path*");
   });
 
+  it.each(["/uploads", "/uploads/", "/uploads/workspaces/ws/image.png?x=1"])(
+    "matches and forwards legacy file requests at runtime: %s",
+    (path) => {
+      expect(unstable_doesMiddlewareMatch({ config, url: path })).toBe(true);
+      const previous = process.env.REMOTE_API_URL;
+      process.env.REMOTE_API_URL = "http://backend:8080";
+      try {
+        expect(proxy(makeRequest(path)).headers.get("x-middleware-rewrite")).toBe(
+          `http://backend:8080${path}`,
+        );
+      } finally {
+        restoreEnv("REMOTE_API_URL", previous);
+      }
+    },
+  );
+
   it("does not rewrite API requests when no runtime API origin is configured", () => {
     withoutRuntimeUpstreams(() => {
       const res = proxy(makeRequest("/api/config?x=1"));
