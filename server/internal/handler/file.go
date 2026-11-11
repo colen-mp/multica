@@ -75,23 +75,20 @@ type AttachmentResponse struct {
 	// SHOULD persist into markdown bodies (issue descriptions, comments,
 	// chat messages). It is computed per deployment policy by
 	// buildMarkdownURL — preferring the storage URL when it is already a
-	// public, durable absolute URL (public CDN / LocalStorage with
-	// MULTICA_LOCAL_UPLOAD_BASE_URL), and otherwise prefixing
+	// public, durable absolute URL (public CDN), and otherwise prefixing
 	// MULTICA_PUBLIC_URL onto the stable per-attachment endpoint that the
 	// server self-resigns / proxies on every request.
 	//
 	// Why a separate field from URL / DownloadURL:
-	//   - URL is the raw storage object URL — fine for avatar/logo
-	//     surfaces but may be private (S3 + CloudFront-signed mode) or
-	//     site-relative (LocalStorage with no base URL configured).
+	//   - URL retains the storage URL for avatar/logo uploads. Bound local
+	//     attachments use the stable authenticated API URL so installed
+	//     clients enter their existing authenticated image-fetch path.
 	//   - DownloadURL is the URL the renderer uses for THIS response — it
 	//     can be a short-lived signed URL (CloudFront, S3 presign) and
 	//     therefore must NOT be persisted. It expires.
 	//   - MarkdownURL is contracted to be persistable: it never carries a
-	//     TTL, and on every supported deployment shape it is loadable as
-	//     a native browser resource fetch (no Authorization header required
-	//     beyond the cookies/credentials the client already has on the
-	//     resolved host).
+	//     TTL. Private attachments require cookies or an authenticated byte
+	//     fetch; token-mode clients cannot use this URL as a bare native src.
 	//
 	// MUL-3192 — fixes the Desktop / mobile-webview regression where the
 	// previous site-relative `/api/attachments/<id>/download` link only
@@ -169,6 +166,11 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 		SizeBytes:    a.SizeBytes,
 		CreatedAt:    a.CreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
 	}
+	// Installed clients recognize this API shape and fetch private image bytes
+	// with credentials. Keep unbound upload URLs intact for avatar setters.
+	if _, local := h.Storage.(*storage.LocalStorage); local && attachmentIsBound(a) {
+		resp.URL = resp.MarkdownURL
+	}
 	// Only CloudFront mode overrides the stable path here; the presign and proxy
 	// modes already leave DownloadURL as the stable path and resolve it at
 	// download time, so stable mode is a no-op for them.
@@ -198,16 +200,16 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 }
 
 // buildMarkdownURL chooses the durable URL the client persists into
-// markdown bodies. The contract is "absolute, no TTL, loadable as a native
-// browser resource fetch on every supported client" (MUL-3192).
+// markdown bodies. It has no TTL; private URLs require cookies or an
+// authenticated client fetch rather than exposing the raw storage object.
 //
 // Decision:
 //
 //  1. Persist `a.Url` only when the deployment has signaled the storage
 //     backend serves URLs publicly without per-request auth:
 //     - `Storage.CdnDomain()` is non-empty (operator configured a
-//     public-facing base URL — `S3_CDN_DOMAIN` for the S3 backend or
-//     `LOCAL_UPLOAD_BASE_URL` for LocalStorage), AND
+//     public-facing base URL — `S3_CDN_DOMAIN` for the S3 backend), AND
+//     - the backend is not LocalStorage (always private), AND
 //     - `h.CFSigner` is nil (no per-request CloudFront signing — when
 //     signing is on, the same CDN domain serves PRIVATE content via
 //     time-bounded signed URLs and the raw `a.Url` is unauth-deny),
@@ -219,7 +221,7 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 //
 //  2. Every other shape — CloudFront-signed mode, S3 presign /proxy
 //     against a private bucket without a CDN domain, raw S3 / R2 /
-//     MinIO, LocalStorage with no `LOCAL_UPLOAD_BASE_URL` — uses the
+//     MinIO, and all LocalStorage deployments — uses the
 //     stable per-attachment endpoint that the server self-signs /
 //     proxies on every request, anchored on `MULTICA_PUBLIC_URL` so the
 //     persisted URL keeps working for clients that don't share the
@@ -478,6 +480,9 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				writeError(w, http.StatusForbidden, "invalid issue_id")
+				return
+			}
+			if !h.requireProjectVisible(w, r, workspaceID, issue.ProjectID, http.StatusForbidden, "invalid issue_id") {
 				return
 			}
 			params.IssueID = issue.ID
@@ -792,6 +797,9 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return db.Attachment{}, false
 	}
+	if !h.requireAttachmentVisible(w, r, workspaceID, att) {
+		return db.Attachment{}, false
+	}
 
 	return att, true
 }
@@ -810,10 +818,8 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 // workspace. This helper keeps the URL clean (`/api/attachments/{id}/download`)
 // and treats the attachment id + cookie/Bearer auth as sufficient.
 //
-// Membership uses the same 404-on-deny shape as ServeLocalUpload so the
-// route does not act as an IDOR oracle for attachment IDs that happen to
-// belong to a different workspace. The membership cache fast path mirrors
-// canReadWorkspaceUpload exactly.
+// A denied membership check returns 404 so the route does not reveal
+// attachment IDs belonging to a different workspace.
 func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Request) (db.Attachment, bool) {
 	return h.loadAttachmentForDownloadID(w, r, chi.URLParam(r, "id"))
 }
@@ -825,9 +831,7 @@ func (h *Handler) loadAttachmentForDownloadID(w http.ResponseWriter, r *http.Req
 	}
 	att, err := h.Queries.GetAttachmentByIDOnly(r.Context(), attUUID)
 	if err != nil {
-		// 404 (not 403/401) so non-member and non-existent look identical
-		// to outside callers. Same shape as ServeLocalUpload's
-		// canReadWorkspaceUpload deny path.
+		// Non-member and non-existent look identical to outside callers.
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return db.Attachment{}, false
 	}
@@ -847,6 +851,9 @@ func (h *Handler) loadAttachmentForDownloadID(w http.ResponseWriter, r *http.Req
 		return db.Attachment{}, false
 	}
 	if h.MembershipCache.Get(r.Context(), userID, workspaceID) {
+		if !h.requireAttachmentVisible(w, r, workspaceID, att) {
+			return db.Attachment{}, false
+		}
 		return att, true
 	}
 	if _, err := h.getWorkspaceMember(r.Context(), userID, workspaceID); err != nil {
@@ -854,6 +861,9 @@ func (h *Handler) loadAttachmentForDownloadID(w http.ResponseWriter, r *http.Req
 		return db.Attachment{}, false
 	}
 	h.MembershipCache.Set(r.Context(), userID, workspaceID)
+	if !h.requireAttachmentVisible(w, r, workspaceID, att) {
+		return db.Attachment{}, false
+	}
 	return att, true
 }
 
@@ -1424,6 +1434,9 @@ func (h *Handler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "attachment not found")
+		return
+	}
+	if !h.requireAttachmentVisible(w, r, workspaceID, att) {
 		return
 	}
 	// Captured-context attachments are immutable historical copies. They are

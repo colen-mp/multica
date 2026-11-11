@@ -1006,7 +1006,7 @@ func TestDownloadAttachment_BareNavigationServesMemberWithoutWorkspaceHeaders(t 
 // IDOR boundary: a stray attachment ID belonging to a workspace the
 // requester is NOT a member of must return 404, not 200 (would leak
 // bytes) and not 403 (would confirm the ID exists). Mirrors
-// ServeLocalUpload's deny shape.
+// the non-existent attachment response.
 func TestDownloadAttachment_BareNavigationDeniesNonMemberWith404(t *testing.T) {
 	if testPool == nil {
 		t.Skip("test database not available")
@@ -1786,7 +1786,7 @@ func TestIsTextPreviewable(t *testing.T) {
 // Matrix:
 //
 //   - public CDN durable URL ............... reuse a.Url verbatim
-//   - LocalStorage with PublicURL set ....... reuse a.Url (already absolute)
+//   - LocalStorage with PublicURL set ....... absolute API endpoint
 //   - CloudFront-signed mode ................ never reuse a.Url (raw S3),
 //                                              prefer absolute API endpoint
 //   - LocalStorage relative + PublicURL set . prefix to absolute API endpoint
